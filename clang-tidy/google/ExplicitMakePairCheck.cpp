@@ -8,25 +8,30 @@
 //===----------------------------------------------------------------------===//
 
 #include "ExplicitMakePairCheck.h"
+#include "clang/AST/ASTContext.h"
 #include "clang/ASTMatchers/ASTMatchFinder.h"
 #include "clang/ASTMatchers/ASTMatchers.h"
-#include "clang/AST/ASTContext.h"
 
 using namespace clang::ast_matchers;
 
 namespace clang {
-
-namespace ast_matchers {
+namespace {
 AST_MATCHER(DeclRefExpr, hasExplicitTemplateArgs) {
   return Node.hasExplicitTemplateArgs();
 }
-} // namespace ast_matchers
+} // namespace
 
 namespace tidy {
+namespace google {
 namespace build {
 
 void
 ExplicitMakePairCheck::registerMatchers(ast_matchers::MatchFinder *Finder) {
+  // Only register the matchers for C++; the functionality currently does not
+  // provide any benefit to other languages, despite being benign.
+  if (!getLangOpts().CPlusPlus)
+    return;
+
   // Look for std::make_pair with explicit template args. Ignore calls in
   // templates.
   Finder->addMatcher(
@@ -67,5 +72,6 @@ void ExplicitMakePairCheck::check(const MatchFinder::MatchResult &Result) {
 }
 
 } // namespace build
+} // namespace google
 } // namespace tidy
 } // namespace clang

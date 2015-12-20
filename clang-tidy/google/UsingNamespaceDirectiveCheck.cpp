@@ -8,19 +8,23 @@
 //===----------------------------------------------------------------------===//
 
 #include "UsingNamespaceDirectiveCheck.h"
+#include "clang/AST/ASTContext.h"
 #include "clang/ASTMatchers/ASTMatchFinder.h"
 #include "clang/ASTMatchers/ASTMatchers.h"
-#include "clang/AST/ASTContext.h"
 
 using namespace clang::ast_matchers;
 
 namespace clang {
 namespace tidy {
+namespace google {
 namespace build {
 
 void UsingNamespaceDirectiveCheck::registerMatchers(
     ast_matchers::MatchFinder *Finder) {
-  Finder->addMatcher(usingDirectiveDecl().bind("usingNamespace"), this);
+  // Only register the matchers for C++; the functionality currently does not
+  // provide any benefit to other languages, despite being benign.
+  if (getLangOpts().CPlusPlus)
+    Finder->addMatcher(usingDirectiveDecl().bind("usingNamespace"), this);
 }
 
 void
@@ -37,5 +41,6 @@ UsingNamespaceDirectiveCheck::check(const MatchFinder::MatchResult &Result) {
 }
 
 } // namespace build
+} // namespace google
 } // namespace tidy
 } // namespace clang

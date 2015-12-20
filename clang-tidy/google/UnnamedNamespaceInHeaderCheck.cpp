@@ -8,26 +8,24 @@
 //===----------------------------------------------------------------------===//
 
 #include "UnnamedNamespaceInHeaderCheck.h"
+#include "clang/AST/ASTContext.h"
 #include "clang/ASTMatchers/ASTMatchFinder.h"
 #include "clang/ASTMatchers/ASTMatchers.h"
-#include "clang/AST/ASTContext.h"
 
 using namespace clang::ast_matchers;
 
 namespace clang {
-namespace ast_matchers {
-AST_MATCHER(NamespaceDecl, isAnonymousNamespace) {
-  return Node.isAnonymousNamespace();
-}
-} // namespace ast_matchers
-
 namespace tidy {
+namespace google {
 namespace build {
 
 void UnnamedNamespaceInHeaderCheck::registerMatchers(
     ast_matchers::MatchFinder *Finder) {
-  Finder->addMatcher(
-      namespaceDecl(isAnonymousNamespace()).bind("anonymousNamespace"), this);
+  // Only register the matchers for C++; the functionality currently does not
+  // provide any benefit to other languages, despite being benign.
+  if (getLangOpts().CPlusPlus)
+    Finder->addMatcher(namespaceDecl(isAnonymous()).bind("anonymousNamespace"),
+                       this);
 }
 
 void
@@ -47,5 +45,6 @@ UnnamedNamespaceInHeaderCheck::check(const MatchFinder::MatchResult &Result) {
 }
 
 } // namespace build
+} // namespace google
 } // namespace tidy
 } // namespace clang
