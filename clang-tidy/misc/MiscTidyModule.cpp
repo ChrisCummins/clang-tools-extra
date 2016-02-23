@@ -14,10 +14,13 @@
 #include "AssertSideEffectCheck.h"
 #include "AssignOperatorSignatureCheck.h"
 #include "BoolPointerImplicitConversionCheck.h"
+#include "DefinitionsInHeadersCheck.h"
 #include "InaccurateEraseCheck.h"
+#include "IncorrectRoundings.h"
 #include "InefficientAlgorithmCheck.h"
 #include "MacroParenthesesCheck.h"
 #include "MacroRepeatedSideEffectsCheck.h"
+#include "MisplacedWideningCastCheck.h"
 #include "MoveConstantArgumentCheck.h"
 #include "MoveConstructorInitCheck.h"
 #include "NewDeleteOverloadsCheck.h"
@@ -26,6 +29,7 @@
 #include "SizeofContainerCheck.h"
 #include "StaticAssertCheck.h"
 #include "StringIntegerAssignmentCheck.h"
+#include "SuspiciousSemicolonCheck.h"
 #include "SwappedArgumentsCheck.h"
 #include "ThrowByValueCatchByReferenceCheck.h"
 #include "UndelegatedConstructor.h"
@@ -33,6 +37,7 @@
 #include "UnusedAliasDeclsCheck.h"
 #include "UnusedParametersCheck.h"
 #include "UnusedRAIICheck.h"
+#include "VirtualNearMissCheck.h"
 
 namespace clang {
 namespace tidy {
@@ -48,14 +53,20 @@ public:
         "misc-assign-operator-signature");
     CheckFactories.registerCheck<BoolPointerImplicitConversionCheck>(
         "misc-bool-pointer-implicit-conversion");
+    CheckFactories.registerCheck<DefinitionsInHeadersCheck>(
+        "misc-definitions-in-headers");
     CheckFactories.registerCheck<InaccurateEraseCheck>(
         "misc-inaccurate-erase");
+    CheckFactories.registerCheck<IncorrectRoundings>(
+        "misc-incorrect-roundings");
     CheckFactories.registerCheck<InefficientAlgorithmCheck>(
         "misc-inefficient-algorithm");
     CheckFactories.registerCheck<MacroParenthesesCheck>(
         "misc-macro-parentheses");
     CheckFactories.registerCheck<MacroRepeatedSideEffectsCheck>(
         "misc-macro-repeated-side-effects");
+    CheckFactories.registerCheck<MisplacedWideningCastCheck>(
+        "misc-misplaced-widening-cast");
     CheckFactories.registerCheck<MoveConstantArgumentCheck>(
         "misc-move-const-arg");
     CheckFactories.registerCheck<MoveConstructorInitCheck>(
@@ -71,6 +82,8 @@ public:
         "misc-static-assert");
     CheckFactories.registerCheck<StringIntegerAssignmentCheck>(
         "misc-string-integer-assignment");
+    CheckFactories.registerCheck<SuspiciousSemicolonCheck>(
+        "misc-suspicious-semicolon");
     CheckFactories.registerCheck<SwappedArgumentsCheck>(
         "misc-swapped-arguments");
     CheckFactories.registerCheck<ThrowByValueCatchByReferenceCheck>(
@@ -84,6 +97,8 @@ public:
     CheckFactories.registerCheck<UnusedParametersCheck>(
         "misc-unused-parameters");
     CheckFactories.registerCheck<UnusedRAIICheck>("misc-unused-raii");
+    CheckFactories.registerCheck<VirtualNearMissCheck>(
+        "misc-virtual-near-miss");
   }
 };
 
