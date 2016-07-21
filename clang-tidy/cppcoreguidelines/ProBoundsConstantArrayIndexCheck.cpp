@@ -17,11 +17,12 @@ using namespace clang::ast_matchers;
 
 namespace clang {
 namespace tidy {
+namespace cppcoreguidelines {
 
 ProBoundsConstantArrayIndexCheck::ProBoundsConstantArrayIndexCheck(
     StringRef Name, ClangTidyContext *Context)
     : ClangTidyCheck(Name, Context), GslHeader(Options.get("GslHeader", "")),
-      IncludeStyle(IncludeSorter::parseIncludeStyle(
+      IncludeStyle(utils::IncludeSorter::parseIncludeStyle(
           Options.get("IncludeStyle", "llvm"))) {}
 
 void ProBoundsConstantArrayIndexCheck::storeOptions(
@@ -35,8 +36,8 @@ void ProBoundsConstantArrayIndexCheck::registerPPCallbacks(
   if (!getLangOpts().CPlusPlus)
     return;
 
-  Inserter.reset(new IncludeInserter(Compiler.getSourceManager(),
-                                     Compiler.getLangOpts(), IncludeStyle));
+  Inserter.reset(new utils::IncludeInserter(
+      Compiler.getSourceManager(), Compiler.getLangOpts(), IncludeStyle));
   Compiler.getPreprocessor().addPPCallbacks(Inserter->CreatePPCallbacks());
 }
 
@@ -44,9 +45,12 @@ void ProBoundsConstantArrayIndexCheck::registerMatchers(MatchFinder *Finder) {
   if (!getLangOpts().CPlusPlus)
     return;
 
+  // Note: if a struct contains an array member, the compiler-generated
+  // constructor has an arraySubscriptExpr.
   Finder->addMatcher(arraySubscriptExpr(hasBase(ignoringImpCasts(hasType(
                                             constantArrayType().bind("type")))),
-                                        hasIndex(expr().bind("index")))
+                                        hasIndex(expr().bind("index")),
+                                        unless(hasAncestor(isImplicit())))
                          .bind("expr"),
                      this);
 
@@ -64,6 +68,10 @@ void ProBoundsConstantArrayIndexCheck::check(
     const MatchFinder::MatchResult &Result) {
   const auto *Matched = Result.Nodes.getNodeAs<Expr>("expr");
   const auto *IndexExpr = Result.Nodes.getNodeAs<Expr>("index");
+
+  if (IndexExpr->isValueDependent())
+    return; // We check in the specialization.
+
   llvm::APSInt Index;
   if (!IndexExpr->isIntegerConstantExpr(Index, *Result.Context, nullptr,
                                         /*isEvaluated=*/true)) {
@@ -128,5 +136,6 @@ void ProBoundsConstantArrayIndexCheck::check(
   }
 }
 
+} // namespace cppcoreguidelines
 } // namespace tidy
 } // namespace clang

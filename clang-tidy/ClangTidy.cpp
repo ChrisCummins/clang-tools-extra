@@ -32,6 +32,7 @@
 #include "clang/Lex/Preprocessor.h"
 #include "clang/Rewrite/Frontend/FixItRewriter.h"
 #include "clang/Rewrite/Frontend/FrontendActions.h"
+#include "clang/StaticAnalyzer/Core/BugReporter/PathDiagnostic.h"
 #include "clang/StaticAnalyzer/Frontend/AnalysisConsumer.h"
 #include "clang/Tooling/Refactoring.h"
 #include "clang/Tooling/ReplacementsYaml.h"
@@ -58,7 +59,7 @@ static const StringRef StaticAnalyzerChecks[] = {
 #define GET_CHECKERS
 #define CHECKER(FULLNAME, CLASS, DESCFILE, HELPTEXT, GROUPINDEX, HIDDEN)       \
   FULLNAME,
-#include "../../../lib/StaticAnalyzer/Checkers/Checkers.inc"
+#include "clang/StaticAnalyzer/Checkers/Checkers.inc"
 #undef CHECKER
 #undef GET_CHECKERS
 };
@@ -107,6 +108,8 @@ public:
     DiagPrinter->BeginSourceFile(LangOpts);
   }
 
+  SourceManager &getSourceManager() { return SourceMgr; }
+
   void reportDiagnostic(const ClangTidyError &Error) {
     const ClangTidyMessage &Message = Error.Message;
     SourceLocation Loc = getLocation(Message.FilePath, Message.FileOffset);
@@ -124,10 +127,20 @@ public:
       auto Diag = Diags.Report(Loc, Diags.getCustomDiagID(Level, "%0 [%1]"))
                   << Message.Message << Name;
       for (const tooling::Replacement &Fix : Error.Fix) {
-        SourceLocation FixLoc = getLocation(Fix.getFilePath(), Fix.getOffset());
-        SourceLocation FixEndLoc = FixLoc.getLocWithOffset(Fix.getLength());
-        Diag << FixItHint::CreateReplacement(SourceRange(FixLoc, FixEndLoc),
-                                             Fix.getReplacementText());
+        // Retrieve the source range for applicable fixes. Macro definitions
+        // on the command line have locations in a virtual buffer and don't
+        // have valid file paths and are therefore not applicable.
+        SourceRange Range;
+        SourceLocation FixLoc;
+        if (Fix.isApplicable()) {
+          SmallString<128> FixAbsoluteFilePath = Fix.getFilePath();
+          Files.makeAbsolutePath(FixAbsoluteFilePath);
+          FixLoc = getLocation(FixAbsoluteFilePath, Fix.getOffset());
+          SourceLocation FixEndLoc = FixLoc.getLocWithOffset(Fix.getLength());
+          Range = SourceRange(FixLoc, FixEndLoc);
+          Diag << FixItHint::CreateReplacement(Range, Fix.getReplacementText());
+        }
+
         ++TotalFixes;
         if (ApplyFixes) {
           bool Success = Fix.isApplicable() && Fix.apply(Rewrite);
@@ -231,6 +244,13 @@ ClangTidyASTConsumerFactory::CreateASTConsumer(
   Context.setSourceManager(&Compiler.getSourceManager());
   Context.setCurrentFile(File);
   Context.setASTContext(&Compiler.getASTContext());
+
+  auto WorkingDir = Compiler.getSourceManager()
+                        .getFileManager()
+                        .getVirtualFileSystem()
+                        ->getCurrentWorkingDirectory();
+  if (WorkingDir)
+    Context.setCurrentBuildDirectory(WorkingDir.get());
 
   std::vector<std::unique_ptr<ClangTidyCheck>> Checks;
   CheckFactories->createChecks(&Context, Checks);
@@ -396,19 +416,39 @@ runClangTidy(std::unique_ptr<ClangTidyOptionsProvider> OptionsProvider,
              std::vector<ClangTidyError> *Errors, ProfileData *Profile) {
   ClangTool Tool(Compilations, InputFiles);
   clang::tidy::ClangTidyContext Context(std::move(OptionsProvider));
-  ArgumentsAdjuster PerFileExtraArgumentsInserter = [&Context](
-      const CommandLineArguments &Args, StringRef Filename) {
-    ClangTidyOptions Opts = Context.getOptionsForFile(Filename);
-    CommandLineArguments AdjustedArgs;
-    if (Opts.ExtraArgsBefore)
-      AdjustedArgs = *Opts.ExtraArgsBefore;
-    AdjustedArgs.insert(AdjustedArgs.begin(), Args.begin(), Args.end());
-    if (Opts.ExtraArgs)
-      AdjustedArgs.insert(AdjustedArgs.end(), Opts.ExtraArgs->begin(),
-                          Opts.ExtraArgs->end());
-    return AdjustedArgs;
-  };
+
+  // Add extra arguments passed by the clang-tidy command-line.
+  ArgumentsAdjuster PerFileExtraArgumentsInserter =
+      [&Context](const CommandLineArguments &Args, StringRef Filename) {
+        ClangTidyOptions Opts = Context.getOptionsForFile(Filename);
+        CommandLineArguments AdjustedArgs;
+        if (Opts.ExtraArgsBefore)
+          AdjustedArgs = *Opts.ExtraArgsBefore;
+        AdjustedArgs.insert(AdjustedArgs.begin(), Args.begin(), Args.end());
+        if (Opts.ExtraArgs)
+          AdjustedArgs.insert(AdjustedArgs.end(), Opts.ExtraArgs->begin(),
+                              Opts.ExtraArgs->end());
+        return AdjustedArgs;
+      };
+
+  // Remove plugins arguments.
+  ArgumentsAdjuster PluginArgumentsRemover =
+      [&Context](const CommandLineArguments &Args, StringRef Filename) {
+        CommandLineArguments AdjustedArgs;
+        for (size_t I = 0, E = Args.size(); I < E; ++I) {
+          if (I + 4 < Args.size() && Args[I] == "-Xclang" &&
+              (Args[I + 1] == "-load" || Args[I + 1] == "-add-plugin" ||
+               StringRef(Args[I + 1]).startswith("-plugin-arg-")) &&
+              Args[I + 2] == "-Xclang") {
+            I += 3;
+          } else
+            AdjustedArgs.push_back(Args[I]);
+        }
+        return AdjustedArgs;
+      };
+
   Tool.appendArgumentsAdjuster(PerFileExtraArgumentsInserter);
+  Tool.appendArgumentsAdjuster(PluginArgumentsRemover);
   if (Profile)
     Context.setCheckProfileData(Profile);
 
@@ -446,8 +486,24 @@ runClangTidy(std::unique_ptr<ClangTidyOptionsProvider> OptionsProvider,
 void handleErrors(const std::vector<ClangTidyError> &Errors, bool Fix,
                   unsigned &WarningsAsErrorsCount) {
   ErrorReporter Reporter(Fix);
-  for (const ClangTidyError &Error : Errors)
+  vfs::FileSystem &FileSystem =
+      *Reporter.getSourceManager().getFileManager().getVirtualFileSystem();
+  auto InitialWorkingDir = FileSystem.getCurrentWorkingDirectory();
+  if (!InitialWorkingDir)
+    llvm::report_fatal_error("Cannot get current working path.");
+
+  for (const ClangTidyError &Error : Errors) {
+    if (!Error.BuildDirectory.empty()) {
+      // By default, the working directory of file system is the current
+      // clang-tidy running directory.
+      //
+      // Change the directory to the one used during the analysis.
+      FileSystem.setCurrentWorkingDirectory(Error.BuildDirectory);
+    }
     Reporter.reportDiagnostic(Error);
+    // Return to the initial directory to correctly resolve next Error.
+    FileSystem.setCurrentWorkingDirectory(InitialWorkingDir.get());
+  }
   Reporter.Finish();
   WarningsAsErrorsCount += Reporter.getWarningsAsErrorsCount();
 }

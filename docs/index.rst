@@ -10,6 +10,10 @@ Introduction
 Welcome to the clang-tools-extra project which contains extra tools built using
 Clang's tooling API's.
 
+.. toctree::
+   :maxdepth: 1
+
+   ReleaseNotes
 
 Contents
 ========
@@ -17,8 +21,10 @@ Contents
    :maxdepth: 2
 
    clang-tidy/index
+   include-fixer
    modularize
    pp-trace
+   clang-rename
 
 
 Doxygen Documentation

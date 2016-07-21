@@ -11,7 +11,7 @@ See also:
 
    The list of clang-tidy checks <checks/list>
 
-:program:`clang-tidy` is a clang-based C++ linter tool. Its purpose is to
+:program:`clang-tidy` is a clang-based C++ "linter" tool. Its purpose is to
 provide an extensible framework for diagnosing and fixing typical programming
 errors, like style violations, interface misuse, or bugs that can be deduced via
 static analysis. :program:`clang-tidy` is modular and provides a convenient
@@ -67,6 +67,8 @@ There are currently the following groups of checks:
 
 * Clang static analyzer checks are named starting with ``clang-analyzer-``.
 
+* Checks related to Boost library starts with ``boost-``. 
+  
 Clang diagnostics are treated in a similar way as check diagnostics. Clang
 diagnostics are displayed by clang-tidy and can be filtered out using
 ``-checks=`` option. However, the ``-checks=`` option does not affect
